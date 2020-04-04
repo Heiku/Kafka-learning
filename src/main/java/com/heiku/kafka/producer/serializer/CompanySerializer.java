@@ -1,0 +1,57 @@
+package com.heiku.kafka.producer.serializer;
+
+import com.heiku.kafka.producer.serializer.entity.Company;
+import org.apache.kafka.common.serialization.Serializer;
+
+import java.io.UnsupportedEncodingException;
+import java.nio.ByteBuffer;
+import java.util.Map;
+
+/**
+ * @author Heiku
+ * @date 2020/4/4
+ **/
+public class CompanySerializer implements Serializer<Company> {
+    @Override
+    public void configure(Map<String, ?> configs, boolean isKey) {
+        // this config is the properties then we define in producer
+        // in StringSerializer, we can get the encoding from the properties
+        // and call string.getBytes(encoding)
+    }
+
+    @Override
+    public byte[] serialize(String topic, Company data) {
+        if (data == null){
+            return null;
+        }
+        try {
+            byte[] name, address;
+            if (data.getName() != null){
+                name = data.getName().getBytes("UTF-8");
+            }else {
+                name = new byte[0];
+            }
+            if (data.getAddress() != null){
+                address = data.getAddress().getBytes("UTF-8");
+            }else {
+                address = new byte[0];
+            }
+
+            // create a byte array with nio byteBuffer
+            ByteBuffer buffer = ByteBuffer.allocate(4 + name.length + 4 + address.length);
+            buffer.putInt(name.length);
+            buffer.put(name);
+            buffer.putInt(address.length);
+            buffer.put(address);
+            return buffer.array();
+        } catch (UnsupportedEncodingException e) {
+            e.printStackTrace();
+        }
+        return new byte[0];
+    }
+
+    @Override
+    public void close() {
+
+    }
+}
