@@ -1,6 +1,5 @@
 package com.heiku.kafka.producer;
 
-import com.heiku.kafka.producer.interceptor.ProducerInterceptorPrefix;
 import org.apache.kafka.clients.producer.*;
 import org.apache.kafka.common.serialization.StringSerializer;
 
@@ -85,4 +84,5 @@ public class KafkaProducerAnalysis {
         properties.put(ProducerConfig.RECEIVE_BUFFER_CONFIG, 32768);
         return properties;
     }
+
 }

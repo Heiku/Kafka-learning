@@ -26,6 +26,9 @@ public class KafkaConsumerAnalysis {
     public static final String groupId = "group.demo";
     public static final AtomicBoolean isRunning = new AtomicBoolean(true);
 
+    // for default
+    public static KafkaConsumer<String, String> consumer;
+
     public static Properties initConfig(){
         Properties props = new Properties();
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
@@ -40,7 +43,7 @@ public class KafkaConsumerAnalysis {
 
     public static void main(String[] args) {
         Properties props = initConfig();
-        KafkaConsumer<String, String> consumer = new KafkaConsumer<String, String>(props);
+        consumer = new KafkaConsumer<String, String>(props);
 
         // 在订阅前可以通过 partitionInfo 获取想要的订阅信息
         List<TopicPartition> partitions = new ArrayList<>();
@@ -70,5 +73,9 @@ public class KafkaConsumerAnalysis {
         }finally {
             consumer.close();
         }
+    }
+
+    public static KafkaConsumer<String, String> getConsumer(){
+        return consumer;
     }
 }
