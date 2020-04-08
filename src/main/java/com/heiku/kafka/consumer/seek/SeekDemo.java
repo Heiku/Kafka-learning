@@ -34,6 +34,12 @@ public class SeekDemo {
         // 获取消费者所分配到的分区信息
         consumer.poll(Duration.ofMillis(10000));
         Set<TopicPartition> assignment = consumer.assignment();
+
+        // 不断拉取，直到获取到分区信息
+        while (assignment.size() == 0){
+            consumer.poll(Duration.ofMillis(1000));
+            assignment = consumer.assignment();
+        }
         // 设置每个分区的消费位置为10
         assignment.forEach(topicPartition -> {
             consumer.seek(topicPartition, 10);
@@ -52,11 +58,13 @@ public class SeekDemo {
         // 根据时间点确定消费位置
         Map<TopicPartition, Long> timestampToSearch = new HashMap<>();
         assignment.forEach(tp -> {
-            timestampToSearch.put(tp, System.currentTimeMillis() - 1 * 24 * 3600 * 10000);
+            timestampToSearch.put(tp, System.currentTimeMillis() - 1 * 24 * 3600 * 1000);
         });
+        // 找到一天前的分区offset
         Map<TopicPartition, OffsetAndTimestamp> timeOffsets = consumer.offsetsForTimes(timestampToSearch);
         assignment.forEach(tp -> {
             OffsetAndTimestamp offsetAndTimestamp = timeOffsets.get(tp);
+            // 如果存在 offset，直接 seek 定位
             if (offsetAndTimestamp != null){
                 consumer.seek(tp, offsetAndTimestamp.offset());
             }
