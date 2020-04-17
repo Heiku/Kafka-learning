@@ -70,5 +70,35 @@ responses[]:  ProduceResponse 中返回的数据集合。同样按照主题分�
 * FetchRequest field: 
 
 ```
-replica_id
+replica_id(int32):  用来指定副本的 brokerId，这个域是用于 follower 副本向leader 副本同步信息的时候使用的，普通客户端为-1
+max_wait_time(int32):  消费者客户端参数 fetch.max.wait.ms
+min_bytes(int32):  消费者客户端参数 fetch.min.bytes
+max_bytes(int32): 消费者客户端参数 fetch.max.bytes
+isolation_level(int8):  消费者客户端参数 isolation_level (默认 read_uncommited, read_commited)
+session_id(int32):  fetch session id
+epoch(int32):  fetch session 元数据，配合 session_id
+
+topics[]:  拉取的主题信息 
+    topic(string): 主题名称
+    partitions[]:  分区信息
+        partition(int32):  分区编号 
+        fetch_offset(int64):  指定从分区的哪个位置开始读取信息。
+                              如果是 follower 副本发起的请求，那么当前域为 follower 副本的 LEO
+        log_start_offset(int64):  用于 follower 副本发起的 FetchRequest 请求，用于指明分区的起始偏移量。
+        max_bytes(int32):  和消费者客户端参数 max.partition.fetch.bytes 对应
+
+forgotton_topics_data[]:  指定从 fetch session 中指定要去拉取信息
+    topic(string):  主题信息   
+    partitions[]:  分区编号集合
 ```
+
+在 FetchRequest 中，如果要拉取某个分区的信息，就需要指定详细的拉取信息`partition, fetch_offset, log_start_offset, max_bytes`
+这4个具体值，总共占据 4+8+8+4 = 24B。如果存在1000个分区，那么在网络频繁交互的 FetchRequest 中就会有固定 1000 * 24 = 24KB
+的数据在传动，这时候就可以通过 fetch session 存储这部分数据，减少带宽。
+
+这时，引入了 `session_id、epoch、forgotton_topics_data` 等域，通过 session_id 和 epoch 确定一条拉取链路的 fetch session，
+当 session 变动时，填充 topics[] 补充请求数据，否则使用默认缓存的 session 请求数据。如果需要从当前 fetch session 中
+取消某些分区的拉取订阅，则可以使用 `forgotton_topics_data`
+
+
+![](/img/fetch-response-struct.png)
