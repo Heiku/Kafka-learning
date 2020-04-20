@@ -2,7 +2,7 @@
 ### 概念
 
 __AR__: 分区中的所有副本统称为 AR (Assigned Reaplicas)  
-__LSR__: 所有与 leader 副本保持 __一定程度同步__ 的副本 (包括 leader 副本在内) 组成 ISR (In-Sync Replicas)  
+__ISR__: 所有与 leader 副本保持 __一定程度同步__ 的副本 (包括 leader 副本在内) 组成 ISR (In-Sync Replicas)  
 __OSR__: 与 leader 副本同步 __滞后过多__ 的副本 (不包括 leader 副本)，组成 OSR (Out-Sync Replicas)
 
 在正常情况下，所有的 follower 副本都应该与 leader 副本保持一定的同步，即 AR = ISR, OSR = null  
