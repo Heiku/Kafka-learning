@@ -13,4 +13,7 @@
 
 [protocol](/src/main/java/com/heiku/kafka/server/protocol/protocol.md)  
 [timingWheel](/src/main/java/com/heiku/kafka/server/timingwheel/timingWheel.md)  
+[controller](/src/main/java/com/heiku/kafka/server/controller/controller.md)  
+[param](/src/main/java/com/heiku/kafka/server/param/param.md)  
+
 

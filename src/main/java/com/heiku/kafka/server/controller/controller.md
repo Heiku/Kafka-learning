@@ -30,4 +30,19 @@ OfflinePartitionLeaderElectionStrategy。这种策略的基本思路是按照 AR
 副本在 ISR 集合中（已经同步）。一个分区的 AR 集合在分配的时候被指定，并且只要不发生 __重分配__ 的情况，集合内部副本的
 顺序是保持不变的，而分区的 ISR 集合中的副本的顺序可能会改变。
 
+还有几种情况也会触发 leader 选举：
+
+* 分区重分配
+
+对应的选举策略为 ReassignPartitionLeaderElectionStrategy: 从重分配的 AR 列表钟找到第一个存活的副本，且这个副本在目前的 
+ISR 中。
+
+* 优先副本选举
+
+直接将优先副本设置为 leader，AR 集合中的第一个副本为优先副本（PreferredReplicaPartitionLeaderElectionStrategy）
+
+* 当节点被关闭（ControlledShutdown）
+
+位于这个节点的 leader 副本会被下线，与此对应的分区需要执行 leader 选举。对应的策略为（ControlledShutDownPartitionLeaderElectionStrategy）
+为：从 AR 列表中找到第一个存活的副本，且这个副本在目前的 ISR 列表中，同时保证这个副本不处于正在被关闭的节点上。
 
