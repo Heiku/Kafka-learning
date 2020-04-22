@@ -16,4 +16,9 @@
 [controller](/src/main/java/com/heiku/kafka/server/controller/controller.md)  
 [param](/src/main/java/com/heiku/kafka/server/param/param.md)  
 
+#### Client
+
+[assignor](/src/main/java/com/heiku/kafka/client/assignor/assignor.md)  
+[coordinator](/src/main/java/com/heiku/kafka/client/coordinator/coordinator.md)  
+
 
