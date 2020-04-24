@@ -82,6 +82,11 @@ public class KafkaProducerAnalysis {
         properties.put(ProducerConfig.SEND_BUFFER_CONFIG, 32768);
         // 设置 Socket 接受缓冲区的大小
         properties.put(ProducerConfig.RECEIVE_BUFFER_CONFIG, 32768);
+
+        // 设置幂等，事务
+        properties.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, "true");
+        properties.put(ProducerConfig.TRANSACTIONAL_ID_CONFIG, "transaction_id");
+
         return properties;
     }
 
