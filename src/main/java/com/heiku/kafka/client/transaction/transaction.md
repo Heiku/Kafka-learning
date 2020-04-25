@@ -99,3 +99,26 @@ Kafka 并不能保证自己提交的事务中的所有信息都能够被消费
 
 ![](/img/kafka-transaction-controlBatch.png)
 
+
+##### 事务协调器
+
+Kafka 引入事务协调器（TransactionCoordinator）负责处理事务，类比于（GroupCoordinator）。每一个生产者都会被指派一个特定的
+TransactionCoordinator，所有的事务逻辑包括分派PID等都是由 TransactionCoordinator 负责实施。TransactionCoordinator 会将
+事务状态持久化到内部主题 `_transaction_state` 中。
+
+1. 查找 TransactionCoordinator
+
+TransactionCoordinator 负责分配 PID 和管理事务，因此生产者需要先找出对应的 TransactionCoordinator 的 broker 节点。
+查找的方式和 GroupCoordinator 节点一样，通过 `FindCoordinatorRequest` 请求实现，但请求参数 `coordinator_type` 由 0 变为 1。
+
+Kafka 收到了 `FindCoordinatorRequest` 之后，根据 `coordinator_key`（transaction_id）找对应的 TransactionCoordinator 节点。
+类比于消费者根据 `groupId` 找 GroupCoordinator。之后返回 node_id、host 和 port。
+
+```
+Utils.abs(transactionalId.hashcode) % transactionTopicPartitionCount
+
+transactionTopicPartitionCount 由 broker 配置参数 transaction.state.log.num.partitions， 默认50
+```
+
+
+
