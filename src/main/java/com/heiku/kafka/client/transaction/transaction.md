@@ -102,6 +102,8 @@ Kafka 并不能保证自己提交的事务中的所有信息都能够被消费
 
 ##### 事务协调器
 
+![](/img/kafka-consume-transform-produce.png)
+
 Kafka 引入事务协调器（TransactionCoordinator）负责处理事务，类比于（GroupCoordinator）。每一个生产者都会被指派一个特定的
 TransactionCoordinator，所有的事务逻辑包括分派PID等都是由 TransactionCoordinator 负责实施。TransactionCoordinator 会将
 事务状态持久化到内部主题 `_transaction_state` 中。
@@ -120,5 +122,140 @@ Utils.abs(transactionalId.hashcode) % transactionTopicPartitionCount
 transactionTopicPartitionCount 由 broker 配置参数 transaction.state.log.num.partitions， 默认50
 ```
 
+2. 获取 PID
+
+凡是生产者开启了 __幂等性__ 功能，都需要为其分配一个 PID。生产者获取 PID 通过 `InitProducerIdRequest` 实现
+
+```
+InitProducerIdRequest
+
+    transaction_id:
+    transaction_timeout_ms:
+```
+
+保存 PID
+
+生产者的 `InitProducerRequest` 请求会发送给 TransactionCoordinator。如果未开启 __事务__ 而只开启 __幂等__ 特性，那么 
+`InitProducerRequest` 可以发送给任意的 broker。
+
+当 TransactionCoordinator 第一次收到含 transactionId 的 `InitProducerRequest` 请求时，会把 transactionId 和对应的 PID
+以消息（事务日志消息）的形式保存到主题 `_transaction_state` 中，保证了 <TransactionId, PID> 的对应关系被持久化，从而
+保证了 TransactionCoordinator 即使宕机该对应的关系也不会丢失。
+
+`InitProducerRequest` 除了获取 PID 之外，还会增加 producer_epoch，同时恢复（commit）或中止（abort）之前的生产者未完成的事务。
+
+___transaction_state__ 的内部格式如下：
+```
+key: 
+    version:
+    transaction_id
+
+value:
+    version:
+    producer_id:
+    producer_epoch: 如果有相同的 PID 但 producer_epoch 小于该 producer_epoch 的其他生产者新开启的事务将被拒绝。
+    transaction_status:
+    transaction_partition[]:
+        topic:
+        partition_id:[]
+    
+    transaction_entry_timestamp:
+    transaction_start_timestamp:
+``` 
+
+3. 开启事务
+
+    KafkaProducer 的 `beginTransaction()` 方法可以开启一个事务，调用之后，生产者本地会 __标记__ 已经开启了一个新的事务，
+    但只有在生产者 __发送__ 第一条消息之后，TransactionCoordinator 才会认为该事务已经开启。
+
+4. Consume-Transform-Produce
+
+    - AddPartitionToTxnRequest
+
+    当生产者给一个新的分区（TopicPartition）发送数据前，需要先向 TransactionCoordinator 发送 `AddPartitionToTxnRequest` 请求，
+    TransactionCoordinator 会将 <TransactionId, TopicPartition> 的对应关系存储在主题 `_transaction_state` 中，以方便后续
+    为每个分区设置 __COMMIT__ 或 __ABORT__ 标记。
+    
+    如果创建的分区对应事务的第一个分区，那么 TransactionCoordinator 会启动对该事务的计时。
+    
+    ```
+    AddPartitionToTxnRequest
+    
+        transaction_id:
+        producer_id:
+        producer_epoch:
+    
+        topics[]:
+            topic:
+            partitions[]:
+    ```
+
+    - ProduceRequest
+
+    生产者通过 `ProduceRequest` 发送消息（ProduceBatch）到用户自定义的主题中，和普通消息不同的是，ProduceBatch 中会包含实质
+    的 PID、produce_epoch 和 sequence number。
+
+    - AddOffsetsToTxnRequest（只保存消费组对应的内部分区）
+
+    通过 KafkaProducer 的 `sendOffsetsToTransaction(offsets, groupId)` 可以在一个事务里批次处理消息的消费和发送，该方法会向 TransactionCoordinator 
+    节点发送 `AddOffsetsToTxnRequest`，TransactionCoordinator 收到请求之后通过 groupId 退出消费组在 `_consumer_offsets` 中的分区，
+    之后 TransactionCoordinator 将这个分区保存在 `_transaction_state` 中。
+
+    ```
+    AddOffsetsToTxnRequest
+    
+        transaction_id:
+        producer_id:
+        producer_epoch:
+        group_id:
+    ```
+
+    - TxnOffsetCommitRequest（保存分区中的消费位移）
+
+    `TxnOffsetCommitRequest` 也是 `sendOffsetsToTransaction()` 中的一部分，在处理完 `AddOffsetsToTxnRequest` 之后，
+    生产者会发送 `TxnOffsetsCommitRequest` 到 GroupCoordinator，从而将本次事务中包含的消费位移信息 offsets 存储到主题 
+    _consumer_offsets 内部主题中。
 
 
+5. 提交或者中止事务
+
+    一旦数据被写入成功，就可以调用 KafkaProducer 的 `commitTransaction()` 或者 `abortTransaction()` 方法结束当前事务。
+
+    - EndTxnRequest
+    
+    无论调用 `commitTransaction()` 还是 `abortTransaction()`，都会向 TransactionCoordinator 发送 `EndTxnRequest`, 以此通知
+    它提交（Commit）或是中止（Abort）事务。 
+
+    ```
+    EndTxnRequest
+    
+        transaction_id:
+        producer_id:
+        producer_epoch:
+    
+        transaction_result(boolean): 0 = Abort, 1 = Commit
+    ```
+    
+    TransactionCoordinator 在收到 `EndTxnRequest` 执行以下操作：
+    (1) 将 `PREPARE_COMMIT` 或 `PREPARE_ABORT` 消息写入主题 _transaction_state
+    (2) 通过 `WriteTxnMarkersRequest` 将 COMMIT 或 ABORT 信息写入用户所使用的普通主题和 _consumer_offsets
+    (3) 将 `COMPLETE_COMMIT` 或 `COMPLETE_ABORT` 信息写入内部主题 _transaction_state
+    
+    - WriteTxnMarkerRequest
+    
+    TransactionCoordinator 会向事务（所涉及）中各个分区的 leader 节点发送 `WriteTxnMarkerRequest`，当节点收到这个请求后，
+    会在相应的分区中写入控制消息（ControlBatch）。控制消息用来标识事务的终结，和普通消息一样存储在日志文件中。
+    
+    RecordBatch 中的 `attributes` 字段第5位标识当前消息是否处于事务中，如果是事务中为1，否则为0。字段第6位标识当前消息
+    是否是控制消息，如果是为1，否则为0。
+    
+    一个 RecordBatch 会为了压缩节省空间包含多个 ProducerRecord，ControlBatch 是个特殊的 RecordBatch，用于标识，
+    内部只有一个 Record，Record 中的 `timestamp delta` 和 `offset data` 都为 0。
+    
+    - 写入 COMPLETE_COMMIT 和 COMPLETE_ABORT
+    
+    TransactionCoordinator 将最终的 `COMPLETE_COMMIT` 和 `COMPLETE_ABORT` 信息写入主题 _transaction_state 表明当前事务已经
+    结束，此时可以删除主题 _transaction_state 中所有关于该事务的信息。由于主题 _transaction_state 采用的是日志清理策略为
+    日志压缩，所以这里的删除只需将对应的消息设置为墓碑消息即可。
+    
+    
