@@ -113,3 +113,10 @@ Kafka 提供了专门的后台线程定期（时间轮）检查待 Compact 的�
 （如果 Cleaner 线程崩溃了会导致 Kafka 异常）
 
 
+## CommitFailedException
+
+消费者组开启了 rebalance 过程，并且将要提交位移的分区分配给了另一个消费者实例，出现的原因通常是两次调用 poll 的间隔时间超过了
+`max.poll.interval.ms`。
+
+* 适当增大 `max.poll.interval.ms`
+* 减少一次 poll 的消息数量，`max.poll.records`
