@@ -16,10 +16,19 @@ interceptor  -> serializer -> partitioner
 
 ## TCP 连接
 
+### producer
+
 在创建 producer 的时候，就会创建一个 sender 线程，他会向配置的所有 `bootstrap.servers` 建立 tcp 连接。
 
 关闭可以通过 `producer.close()` 或者是 `connections.max.idle.ms` 自动关闭 tcp 连接，默认9min，如果设置成-1，那么将会
 启动 keepalive 机制，连接将一直存活。
+
+### consumer
+
+对于 consumer 来说，只会在第一次 poll 的时候进行连接的创建。
+
+对于 consumer，会先发送 findCoordinator 给集群中的任意一个 broker（连接数最少的），然后得到 coordinator 所在的 broker 后，
+就可以进行获取组方案（根据组方案再向分配的分区所在的 leader broker 进行建立 tcp 连接），位移提交，加入组等操作。
 
 ## 幂等
 
@@ -51,6 +60,9 @@ try {
 2. Consumer Group 下所有实例订阅的主题的单个分区，只能分配给组内的某个 Consumer 实例消费。
 
 理想情况下，Consumer 实例的数量应该等于该 Group 订阅主题的分区总数。
+
+
+
 
 
 ## ReBalance
@@ -98,6 +110,26 @@ Coordinator 为 Consumer Group 服务，负责为 Group 执行 ReBalance 以及�
 
     * 死锁？线程阻塞了？gc？  比如 spring-kafka poll 和执行在同一个业务线程中，导致超时 poll ？ 一步一步排查
     
+### 流程解析
+
+kafka 消费者组状态：
+
+* empty：组内没有任何成员
+* dead：组内没有任何成员，同时组的元数据信息已经被协调者端删除
+* prepareingRebalance：消费组准备开启重平衡
+* completingRebalance：消费组所有成员已经加入，各个成员正在等待分配方案（block状态）
+* stable：稳定状态，即重平衡已经完成
+
+当有新 consumer 加入消费者组的时候，会向 coordinator 发送 `JoiGroupReq` 请求，coordinator 接受到之后，会向该消费者组中的 leader
+（默认是第一个加入该 group 的 consumer）发送通知消息，由 leader consumer 生成分区的分配方案。同时 coordinator 会变更当前状态为 
+__重平衡__，所以这时其他消费者都会向 coordinator 发送 `syncGroupReq` 请求，定时轮训当前消费者组的分配策略。
+
+当 leader consumer 生成分配策略之后，会发送一份给 coordinator，这时候，coordinator 就可以向其他 consumer 回复 syncGroup 请求，
+告知他们自己被分配的 topicPartition 是哪些。
+
+[消费者组流程解析](https://time.geekbang.org/column/article/111226)
+
+
 
 
 ## 位移主题
@@ -120,3 +152,39 @@ Kafka 提供了专门的后台线程定期（时间轮）检查待 Compact 的�
 
 * 适当增大 `max.poll.interval.ms`
 * 减少一次 poll 的消息数量，`max.poll.records`
+
+
+## 副本机制
+
+采用 "拉取模式"，follower replica 会主动向 leader 拉取日志，并写入自己提交的日志中，从而实现与领导者副本饿同步。
+
+follower 只进行备份（主备模式）：
+
+1. "read-your-writes"：写入的消息能够即使看到
+2. 方便实现单调读：比如 F1、F2同步的消息进度是不一样的，如果一个消费者先从F1拉取，再向F2获取消息，那么可能出现消息不一致的情况。
+
+
+## ISR 
+
+in-sync replica 包括了 leader 副本（某些情况下，只有 leader 副本），判断的标准是根据 `replica.lag.time.max.ms`（默认10s）
+
+如果连 leader 都不在 ISR 中，那么说明需要重新选举一个 leader，根据参数将 `unclean.leader.election.enable` 判断是否能允许 unclean
+领导者选举，如果开启会导致消息丢失，如果不开启，可能会导致分区一直无法选出 leader，即停止对外提供服务，失去了高可用性。
+
+
+## LEO
+
+LEO（log end offset），标识当前副本日志下一条写入的 offset，分区 ISR 中的每个副本都会维护自己的 LEO（不管是 leader 自己处理写，还是 
+follower 同步偏移，都会更新自己本地的 LEO），而 ISR 集合中的最小的那个 LEO 被称为 HW（high watermark），消费者 consumer 只能读到
+HW 标识的 offset。
+
+### controller
+
+broker 启动的时候，会向 zookeeper 创建 /controller 节点，第一个创建成功的节点的 broker 会被指定为控制器 controller。
+
+1. 主题管理（创建、删除、增加分区）
+2. 分区重分配
+3. preferred 领导者选举
+4. 集群成员管理（新增 broker、broker主动关闭、broker 宕机）
+5. 数据服务
+
