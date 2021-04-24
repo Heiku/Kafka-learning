@@ -44,14 +44,12 @@ public class RandomAssignor extends AbstractPartitionAssignor {
         });
 
         // 对每个主题进行分区分配
-        consumersPerTopic.entrySet().forEach(topic2ConsumerList -> {
-            String topic = topic2ConsumerList.getKey();
-            List<String> consumerList = topic2ConsumerList.getValue();
+        consumersPerTopic.forEach((topic, consumerList) -> {
             int consumerSize = consumerList.size();
 
             // 获取每个主题下的分区数量
             Integer numPartitionsForTopic = partitionsPerTopic.get(topic);
-            if (numPartitionsForTopic == null){
+            if (numPartitionsForTopic == null) {
                 return;
             }
             // 获取当前主题下的所有分区

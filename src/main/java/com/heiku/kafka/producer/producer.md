@@ -60,3 +60,20 @@ KafkaProducer 将消息追加到指定主题 topic 的某个分区所对应的 l
 
 __元数据__ 的更新通过 Sender 线程完成，当主线程需要读取元信息时，通过 `synchronized` 和 `final` 字段保障最新。
 
+
+## onSend 阻塞
+
+就算使用异步 onSend() future，也还是有可能出现阻塞的：
+
+* 发送的时候会根据 `batch.size` 缓存在 BufferByte 中，一旦 bufferPool 中没有足够的 Bytebuffer 的时候，就会阻塞发送，
+知道 bufferPool 中有足够的 bufferByte 被分配出来
+  
+* 第一次发送的时候，是需要向主题的 leader 获取 MetaData（节点信息、ISR列表等等），只有再获取到 metadata 之后，才会将
+消息累加在缓冲区中。
+  
+
+## batch.size
+
+如果消息大小比 `batch.size` 大，则不会从 free 中循环获取已分配号的内存块，而是重新创建一个新的 byteBuffer，
+并且该 byteBuffer 不会被归还到缓冲池中（jvm gc 回收），如果此时 nonPooledAvailableMemory 比消息体还要小，
+还会将 free 中空闲的内存块销毁（jvm gc回收），以便缓冲池中与足够的内存空间提供给用户申请，这些动作将导致频繁 gc。
